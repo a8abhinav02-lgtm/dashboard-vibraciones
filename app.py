@@ -82,8 +82,10 @@ if uploaded_file is not None:
                     row_str = row_str.strip()
                     if not row_str: continue
                     if row_str.startswith('Area:'): current_area = row_str.split('Area:')[1].strip(); continue
-                    if row_str.startswith('PP') and not row_str.startswith('Database:') and not row_str.startswith('Report Date:'):
-                        current_equipment = row_str.strip(); continue
+                    # AQUÍ ESTÁ EL CONDICIONAL ACTUALIZADO
+                    if row_str.startswith(('PP', 'PF', 'PC', 'PR')) and not row_str.startswith('Database:') and not row_str.startswith('Report Date:'):
+                        current_equipment = row_str.strip()
+                        continue
                     if 'mm/Sec' in row_str: current_unit = 'mm/Sec RMS'; continue
                     if 'G-s' in row_str: current_unit = 'G-s RMS'; continue
 
@@ -189,4 +191,5 @@ if uploaded_file is not None:
                     )
 
             except Exception as e:
+
                 st.error(f"Error en el procesamiento: {str(e)}")
