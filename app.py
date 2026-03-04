@@ -1,6 +1,6 @@
 # # Procesador de Reportes de Vibraciones (Con Dashboard y Gráficos)
 # %%
-!pip install xlsxwriter
+
 import pandas as pd
 import os
 import xlsxwriter
@@ -282,3 +282,4 @@ with pd.ExcelWriter(output_xlsx, engine='xlsxwriter') as writer:
     aplicar_formatos_a_hoja(tabla_acc, 'Aceleracion')
 
 print(f"\n¡Proceso finalizado! Se ha generado tu reporte con Dashboard Ejecutivo:\n📥 {output_xlsx}")
+
