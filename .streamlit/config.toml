@@ -1,1 +1,15 @@
+[theme]
+# Color principal (Botones, barras de carga) - Azul Corporativo
+primaryColor = "#1F497D"
 
+# Color de fondo de la página - Gris muy claro
+backgroundColor = "#F8F9FA"
+
+# Color de fondo secundario (Paneles laterales, etc.) - Blanco puro
+secondaryBackgroundColor = "#FFFFFF"
+
+# Color del texto - Gris oscuro/Casi negro para fácil lectura
+textColor = "#31333F"
+
+# Fuente tipográfica
+font = "sans serif"
