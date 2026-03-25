@@ -80,7 +80,6 @@ def obtener_lista_negra_df(df):
     df_alertas['Crit_Rank'] = df_alertas['Criticality'].map({'ALTO': 1, 'MEDIA': 2})
     df_alertas = df_alertas.sort_values(by=['Crit_Rank', 'Ord_Var'], ascending=[True, False])
     
-    # Formato visual del porcentaje
     df_alertas['Var % vs Avg'] = df_alertas['Var % vs Avg'].apply(lambda x: f"{x}%" if x != '---' else x)
     return df_alertas[['Area', 'Equipment', 'Unit', 'Criticality', 'Var % vs Avg', 'Latest vs Avg']]
 
@@ -88,12 +87,9 @@ def obtener_lista_negra_df(df):
 # 2. PARSERS Y VALIDACIÓN
 # ==========================================
 def detectar_tipo_archivo(lines):
-    """Escanea las primeras líneas para saber si es un archivo de Máquinas o Equipos."""
-    texto_muestra = " ".join(lines[:150]) # Buscamos en las primeras líneas
-    if re.search(r'\d{2}/\d{2}/\d{2}\s+\d{2}:\d{2}', texto_muestra): 
-        return 'equipo' # Detecta fechas tipo 25/11/25 10:25
-    if re.search(r'[A-Z][a-z]{2},\s\d{4}', texto_muestra): 
-        return 'maquina' # Detecta fechas tipo Aug, 2025
+    texto_muestra = " ".join(lines[:150]) 
+    if re.search(r'\d{2}/\d{2}/\d{2}\s+\d{2}:\d{2}', texto_muestra): return 'equipo'
+    if re.search(r'[A-Z][a-z]{2},\s\d{4}', texto_muestra): return 'maquina'
     return 'unknown'
 
 def parse_maquinas(lines):
@@ -151,7 +147,7 @@ def parse_equipos(lines):
     df_equipos = pd.DataFrame(data)
     if df_equipos.empty: return df_equipos
 
-    # Lógica de Competición por Grupos
+    # --- Lógica de Competición por Grupos ---
     df_equipos = df_equipos.groupby(['Area', 'Equipment', 'Tag', 'Unit', 'Month'])['Value'].max().reset_index()
     df_equipos['Date_obj'] = pd.to_datetime(df_equipos['Month'], format='%b %Y')
     
@@ -185,7 +181,6 @@ def generar_excel(tabla_vel, tabla_acc, month_order):
         fmt_header = workbook.add_format({'bold': True, 'bg_color': '#DCE6F1', 'border': 1})
         fmt_border = workbook.add_format({'border': 1})
         
-        # Dashboard
         ws_dash = workbook.add_worksheet('Dashboard')
         ws_dash.set_column('A:B', 20); ws_dash.set_column('C:G', 22)
         ws_dash.merge_range('A1:G1', 'DASHBOARD EJECUTIVO - ESTADO DE VIBRACIONES', fmt_title)
@@ -209,7 +204,6 @@ def generar_excel(tabla_vel, tabla_acc, month_order):
         current_row = crear_bloque_kpi(tabla_vel, 'Velocidad', 2)
         current_row = crear_bloque_kpi(tabla_acc, 'Aceleración', current_row)
         
-        # Lista Negra
         current_row += 1
         ws_dash.merge_range(f'A{current_row}:G{current_row}', 'LISTA NEGRA PRIORIZADA (ALTO Y MEDIA)', fmt_title)
         current_row += 2
@@ -230,7 +224,6 @@ def generar_excel(tabla_vel, tabla_acc, month_order):
         current_row = escribir_lista_negra(tabla_vel, current_row)
         escribir_lista_negra(tabla_acc, current_row)
 
-        # Tablas de Datos
         def aplicar_formatos(df_tabla, nombre_hoja):
             if df_tabla is None or df_tabla.empty: return
             df_tabla.to_excel(writer, sheet_name=nombre_hoja, index=False)
@@ -249,30 +242,60 @@ def generar_excel(tabla_vel, tabla_acc, month_order):
     return output
 
 # ==========================================
-# 4. INTERFAZ GRÁFICA (UI) - STREAMLIT
+# 4. INTERFAZ GRÁFICA (UI) MEJORADA
 # ==========================================
-st.title("⚙️ Procesador ETL - Mantenimiento Predictivo")
-st.markdown("Selecciona el formato de tu reporte en las pestañas de abajo, sube el archivo `.txt` y genera tu Dashboard Ejecutivo.")
+
+# --- INYECCIÓN DE CSS PARA ESTILOS AVANZADOS ---
+st.markdown("""
+    <style>
+    .block-container { padding-top: 2rem; padding-bottom: 2rem; }
+    .stButton>button {
+        width: 100%;
+        border-radius: 8px;
+        font-weight: bold;
+        border: 2px solid #1F497D;
+        transition: all 0.3s ease;
+    }
+    .stButton>button:hover {
+        background-color: #1F497D;
+        color: white;
+        transform: scale(1.02);
+    }
+    div[data-testid="stInfo"] {
+        background-color: #f0f8ff;
+        border-left: 5px solid #1F497D;
+        border-radius: 4px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+# --- CABECERA ---
+col1, col2 = st.columns([1, 8])
+with col1:
+    st.image("https://cdn-icons-png.flaticon.com/512/2043/2043236.png", width=70) # Ícono de engranaje
+with col2:
+    st.title("Procesador ETL")
+    st.subheader("Mantenimiento Predictivo & Análisis de Vibraciones")
+
+st.markdown("---")
 
 # --- PESTAÑAS (Tabs) ---
-tab_maquinas, tab_equipos = st.tabs(["📁 Modo Máquina (Resumido)", "⚙️ Modo Equipos (Detallado por Puntos)"])
+tab_maquinas, tab_equipos = st.tabs(["📁 MODO RESUMIDO (Máquinas)", "⚙️ MODO DETALLADO (Puntos de Equipo)"])
 
-# --- LÓGICA PRINCIPAL DE PROCESAMIENTO ---
+# --- LÓGICA DE PROCESAMIENTO UI ---
 def procesar_interfaz(uploaded_file, modo_esperado):
     lines = uploaded_file.getvalue().decode("utf-8", errors="ignore").splitlines()
     
-    # 1. Validación de Errores (A prueba de usuarios)
     tipo_detectado = detectar_tipo_archivo(lines)
     if tipo_detectado != modo_esperado and tipo_detectado != 'unknown':
         if modo_esperado == 'maquina':
-            st.error("❌ **¡Archivo Incorrecto!** Detectamos que subiste un reporte detallado (por puntos). Por favor, ve a la pestaña **'⚙️ Modo Equipos'** para procesarlo.")
+            st.error("❌ **¡Archivo Incorrecto!** Detectamos que subiste un reporte detallado (por puntos). Por favor, ve a la pestaña **'⚙️ MODO DETALLADO'** para procesarlo.")
         else:
-            st.error("❌ **¡Archivo Incorrecto!** Detectamos que subiste un reporte resumido. Por favor, ve a la pestaña **'📁 Modo Máquina'** para procesarlo.")
+            st.error("❌ **¡Archivo Incorrecto!** Detectamos que subiste un reporte resumido. Por favor, ve a la pestaña **'📁 MODO RESUMIDO'** para procesarlo.")
         return
 
     with st.spinner('Analizando datos, consolidando grupos y dibujando gráficos...'):
         try:
-            # 2. Extracción de Datos según el modo
             if modo_esperado == 'maquina': df_data = parse_maquinas(lines)
             else: df_data = parse_equipos(lines)
 
@@ -280,7 +303,6 @@ def procesar_interfaz(uploaded_file, modo_esperado):
                 st.warning("No se encontraron datos válidos en el archivo.")
                 return
 
-            # 3. Procesamiento Matemático
             month_order = sorted(df_data['Month'].unique(), key=lambda x: pd.to_datetime(x, format='%b %Y'))
             latest_month = month_order[-1] if month_order else None
             group_keys = ['Area', 'Equipment', 'Unit']
@@ -288,15 +310,12 @@ def procesar_interfaz(uploaded_file, modo_esperado):
             tabla_vel = procesar_unidad(df_data[df_data['Unit'] == 'mm/Sec RMS'], month_order, latest_month, group_keys, 'mm/Sec RMS')
             tabla_acc = procesar_unidad(df_data[df_data['Unit'] == 'G-s RMS'], month_order, latest_month, group_keys, 'G-s RMS')
 
-            # 4. Previsualización Web (UI)
             lista_negra_vel = obtener_lista_negra_df(tabla_vel)
             lista_negra_acc = obtener_lista_negra_df(tabla_acc)
             lista_negra_total = pd.concat([lista_negra_vel, lista_negra_acc]).reset_index(drop=True)
 
             if not lista_negra_total.empty:
                 st.subheader("🚨 Previsualización Rápida: Equipos en Alerta")
-                
-                # Función para colorear la tabla en Streamlit
                 def color_criticidad(val):
                     color = '#FFC7CE' if val == 'ALTO' else '#FFEB9C' if val == 'MEDIA' else ''
                     font = '#9C0006' if val == 'ALTO' else '#9C6500' if val == 'MEDIA' else ''
@@ -306,7 +325,6 @@ def procesar_interfaz(uploaded_file, modo_esperado):
             else:
                 st.success("✅ ¡Excelentes noticias! No hay ningún equipo en estado ALTO o MEDIA.")
 
-            # 5. Botón de Descarga Excel
             excel_file = generar_excel(tabla_vel, tabla_acc, month_order)
             st.divider()
             st.download_button(
@@ -323,14 +341,24 @@ def procesar_interfaz(uploaded_file, modo_esperado):
 
 # --- CONTENIDO DE LA PESTAÑA 1 (MÁQUINAS) ---
 with tab_maquinas:
-    st.info("💡 **Uso:** Sube aquí archivos con un resumen mensual (Ej. feb.txt) donde no hay desglose por puntos de medición ni horas específicas.")
-    file_maq = st.file_uploader("Sube tu archivo (Modo Máquina)", type=['txt'], key="maq")
-    if file_maq and st.button("Procesar Máquinas", key="btn_maq"):
-        procesar_interfaz(file_maq, 'maquina')
+    st.info("**💡 Guía de Uso:** Utiliza esta sección para reportes mensuales consolidados (Ej. *feb.txt*). El sistema evaluará la tendencia general de la máquina.")
+    col_upload_m, col_action_m = st.columns([3, 1])
+    with col_upload_m:
+        file_maq = st.file_uploader("Arrastra tu reporte consolidado aquí", type=['txt'], key="maq")
+    with col_action_m:
+        st.write("") 
+        st.write("")
+        if file_maq and st.button("🚀 Ejecutar Análisis", key="btn_maq", use_container_width=True):
+            procesar_interfaz(file_maq, 'maquina')
 
 # --- CONTENIDO DE LA PESTAÑA 2 (EQUIPOS) ---
 with tab_equipos:
-    st.info("💡 **Uso:** Sube aquí archivos detallados (Ej. bombas.txt) que incluyen historial completo, puntos específicos (1HM, 2V) y fechas con hora. El sistema filtrará automáticamente el punto más crítico de cada apoyo físico.")
-    file_eq = st.file_uploader("Sube tu archivo (Modo Equipos)", type=['txt'], key="eq")
-    if file_eq and st.button("Procesar Equipos", key="btn_eq"):
-        procesar_interfaz(file_eq, 'equipo')
+    st.info("**💡 Guía de Uso:** Sube reportes detallados con historial y fechas (Ej. *bombas.txt*). El algoritmo aislará el sensor más crítico de cada apoyo para el análisis.")
+    col_upload_e, col_action_e = st.columns([3, 1])
+    with col_upload_e:
+        file_eq = st.file_uploader("Arrastra tu reporte de puntos aquí", type=['txt'], key="eq")
+    with col_action_e:
+        st.write("") 
+        st.write("")
+        if file_eq and st.button("🚀 Ejecutar Análisis", key="btn_eq", use_container_width=True):
+            procesar_interfaz(file_eq, 'equipo')
