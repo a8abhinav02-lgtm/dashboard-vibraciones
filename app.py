@@ -54,7 +54,7 @@ def procesar_unidad(df_in, month_order, latest_month, group_keys, unidad):
     
     stats['Var % vs Avg'] = stats.apply(
         lambda x: round(((x['Latest Value'] - x['Previous Avg']) / x['Previous Avg']) * 100, 2) 
-        if pd.notnull(x['Latest Value']) and x['Previous Avg'] not in ['---', 0, 0.0] else '---', axis=1
+        if pd.notnull(x['Latest Value']) and x['Previous Avg'] not in ['---', 0] else '---', axis=1
     )
     stats['Criticality'] = stats['Var % vs Avg'].apply(calcular_criticidad)
     
@@ -82,7 +82,7 @@ def obtener_lista_negra_df(df):
     return df_alertas[['Area', 'Equipment', 'Unit', 'Criticality', 'Var % vs Avg', 'Latest vs Avg']]
 
 # ==========================================
-# 2. PARSERS Y VALIDACIÓN BLINDADA
+# 2. PARSERS Y VALIDACIÓN
 # ==========================================
 def detectar_tipo_archivo(lines):
     texto_muestra = " ".join(lines[:150]) 
@@ -91,83 +91,31 @@ def detectar_tipo_archivo(lines):
     return 'unknown'
 
 def parse_maquinas(lines):
-    data = []
-    current_area, current_equipment, current_unit = None, None, None
-    meses_validos = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-    ruido = ['Monthly', '****', 'Database:', 'Report Date:', 'Period Reported:']
-    
-    pending_date = None # Memoria para valores que saltan a la siguiente línea
-
+    data, current_area, current_equipment, current_unit = [], None, None, None
+    meses_validos = ['Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov']
     for row_str in lines:
         row_str = row_str.strip()
         if not row_str: continue
-        if any(row_str.startswith(r) for r in ruido): continue
-        if row_str.startswith('Area:'): 
-            current_area = row_str.split('Area:')[1].strip()
-            continue
+        if row_str.startswith('Area:'): current_area = row_str.split('Area:')[1].strip(); continue
+        if row_str.startswith(('PP', 'PF', 'PC', 'PR')) and not row_str.startswith('Database:') and not row_str.startswith('Report Date:'):
+            current_equipment = row_str.strip(); continue
+        if 'mm/Sec' in row_str: current_unit = 'mm/Sec RMS'; continue
+        if 'G-s' in row_str: current_unit = 'G-s RMS'; continue
 
-        parts = row_str.split()
-        
-        # Recuperación de valor en la siguiente línea (Line Wrapping)
-        if pending_date:
-            try:
-                val = float(parts[0])
-                data.append({'Area': current_area, 'Equipment': current_equipment, 'Unit': current_unit, 'Month': pending_date, 'Value': val})
-                pending_date = None
-                continue
-            except ValueError:
-                if parts[0] == '-------':
-                    data.append({'Area': current_area, 'Equipment': current_equipment, 'Unit': current_unit, 'Month': pending_date, 'Value': None})
-                    pending_date = None
-                    continue
-                else:
-                    pending_date = None # Falsa alarma
-
-        is_data_line = False
-        if len(parts) >= 2:
-            potential_month = parts[0].replace(',', '').strip().capitalize()
-            if potential_month in meses_validos and parts[1].isdigit() and len(parts[1]) == 4:
-                is_data_line = True
-
-        if is_data_line:
-            if 'mm/Sec' in row_str: current_unit = 'mm/Sec RMS'
-            elif 'G-s' in row_str: current_unit = 'G-s RMS'
-            
-            if current_unit:
-                month_str = parts[0].replace(',', '').strip().capitalize()
-                year_str = parts[1].strip()
-                month_formatted = f"{month_str} {year_str}"
-                
-                if len(parts) > 2:
-                    val_str = parts[2]
-                    try:
-                        val = float(val_str)
-                    except ValueError:
-                        val = None
-                    data.append({'Area': current_area, 'Equipment': current_equipment, 'Unit': current_unit, 'Month': month_formatted, 'Value': val})
-                else:
-                    # El valor probablemente esté en la línea de abajo
-                    pending_date = month_formatted
-            continue
-        
-        # Evitar bautizar máquinas con números flotantes sueltos
-        try:
-            float(parts[0])
-            continue 
-        except ValueError:
-            pass
-        
-        if parts[0] == '-------': continue
-        current_equipment = row_str
-
+        if current_unit in ['mm/Sec RMS', 'G-s RMS'] and any(month in row_str for month in meses_validos):
+            parts = row_str.split()
+            if len(parts) >= 2:
+                month = parts[0].replace(',', '').strip().capitalize()
+                year = parts[1].strip()
+                val_str = parts[2] if len(parts) > 2 else '-------'
+                val = float(val_str) if val_str != '-------' else None
+                data.append({'Area': current_area, 'Equipment': current_equipment, 'Unit': current_unit, 'Month': f"{month} {year}", 'Value': val})
     return pd.DataFrame(data)
 
 def parse_equipos(lines):
     data, current_area, current_equipment, current_tag, current_unit = [], None, None, None, None
     meses_nombres = {1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun', 7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'}
     ruido = ['Measurement Point History', 'Database:', 'Report Date:', 'Period Reported:', 'Baseline Value', 'Early Warning Limit', 'Alert Limit Value', 'Fault Limit Value', 'Calc. Mean Value', 'Standard Deviation', '*************************']
-    
-    pending_date_eq = None # Memoria contra Line Wrapping
 
     for row_str in lines:
         row_str = row_str.strip()
@@ -184,35 +132,14 @@ def parse_equipos(lines):
         if 'G-s' in row_str: current_unit = 'G-s RMS'; continue
 
         parts = row_str.split()
-        
-        # Recuperación de valor en la siguiente línea
-        if pending_date_eq:
-            try:
-                val = float(parts[0])
-                data.append({'Area': current_area, 'Equipment': current_equipment, 'Tag': current_tag, 'Unit': current_unit, 'Month': pending_date_eq, 'Value': val})
-                pending_date_eq = None
-                continue
-            except ValueError:
-                pending_date_eq = None
-
-        if len(parts) >= 2 and '/' in parts[0] and ':' in parts[1]:
+        if len(parts) >= 3 and '/' in parts[0] and ':' in parts[1]:
             try:
                 dt = pd.to_datetime(parts[0], format='%d/%m/%y')
                 month_year = f"{meses_nombres[dt.month]} {dt.year}"
-                if len(parts) >= 3:
-                    val = float(parts[2])
-                    data.append({'Area': current_area, 'Equipment': current_equipment, 'Tag': current_tag, 'Unit': current_unit, 'Month': month_year, 'Value': val})
-                else:
-                    pending_date_eq = month_year
+                val = float(parts[2])
+                data.append({'Area': current_area, 'Equipment': current_equipment, 'Tag': current_tag, 'Unit': current_unit, 'Month': month_year, 'Value': val})
             except ValueError: pass
             continue
-
-        try:
-            float(parts[0])
-            continue
-        except ValueError:
-            pass
-
         current_tag = row_str
 
     df_equipos = pd.DataFrame(data)
@@ -315,29 +242,57 @@ def generar_excel(tabla_vel, tabla_acc, month_order):
 # 4. INTERFAZ GRÁFICA (UI) REDISEÑADA
 # ==========================================
 
+# --- INYECCIÓN DE CSS PARA BOTONES Y CABECERA ---
 st.markdown("""
     <style>
-    .main-title { font-size: 2.8rem; font-weight: 800; color: #1F497D; margin-bottom: 0px; }
-    .sub-title { font-size: 1.2rem; color: #555555; margin-top: -10px; margin-bottom: 30px; }
+    /* Estilo del título principal */
+    .main-title {
+        font-size: 2.8rem;
+        font-weight: 800;
+        color: #1F497D;
+        margin-bottom: 0px;
+    }
+    .sub-title {
+        font-size: 1.2rem;
+        color: #555555;
+        margin-top: -10px;
+        margin-bottom: 30px;
+    }
+    /* Estilos para los botones principales */
     div.stButton > button {
         background: linear-gradient(90deg, #1F497D 0%, #3B82F6 100%);
-        color: white; border: none; border-radius: 6px; font-weight: bold;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: all 0.3s ease;
+        color: white;
+        border: none;
+        border-radius: 6px;
+        font-weight: bold;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        transition: all 0.3s ease;
     }
-    div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 6px 12px rgba(0,0,0,0.2); color: white; }
+    div.stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0,0,0,0.2);
+        color: white;
+    }
+    /* Mejora de las métricas (KPIs) */
     div[data-testid="metric-container"] {
-        background-color: white; border: 1px solid #e0e0e0; padding: 15px;
-        border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        background-color: white;
+        border: 1px solid #e0e0e0;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     </style>
     """, unsafe_allow_html=True)
 
+# --- CABECERA VISUAL ---
 st.markdown('<p class="main-title">⚙️ Plataforma ETL - Mantenimiento Predictivo</p>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">Motor de Análisis y Generación Automática de Dashboards</p>', unsafe_allow_html=True)
 st.divider()
 
+# --- PESTAÑAS ---
 tab_maquinas, tab_equipos = st.tabs(["📁 MODO RESUMIDO (Máquinas)", "⚙️ MODO DETALLADO (Equipos por Puntos)"])
 
+# --- LÓGICA DE PROCESAMIENTO UI ---
 def procesar_interfaz(uploaded_file, modo_esperado):
     lines = uploaded_file.getvalue().decode("utf-8", errors="ignore").splitlines()
     
@@ -369,11 +324,13 @@ def procesar_interfaz(uploaded_file, modo_esperado):
             lista_negra_acc = obtener_lista_negra_df(tabla_acc)
             lista_negra_total = pd.concat([lista_negra_vel, lista_negra_acc]).reset_index(drop=True)
 
+            # --- PANEL DE PREVISUALIZACIÓN (DASHBOARD WEB) ---
             st.markdown("### 📊 Panel de Resultados")
             if not lista_negra_total.empty:
                 altos = len(lista_negra_total[lista_negra_total['Criticality'] == 'ALTO'])
                 medias = len(lista_negra_total[lista_negra_total['Criticality'] == 'MEDIA'])
                 
+                # Tarjetas de Métricas nativas de Streamlit
                 col1, col2, col3 = st.columns(3)
                 col1.metric("🔴 Equipos en ALTO", altos)
                 col2.metric("🟡 Equipos en MEDIA", medias)
@@ -392,6 +349,7 @@ def procesar_interfaz(uploaded_file, modo_esperado):
             st.write("")
             excel_file = generar_excel(tabla_vel, tabla_acc, month_order)
             
+            # Botón de descarga dentro de un contenedor para centrar la atención
             with st.container(border=True):
                 st.markdown("#### 📥 Exportar Resultados")
                 st.download_button(
@@ -405,10 +363,12 @@ def procesar_interfaz(uploaded_file, modo_esperado):
         except Exception as e:
             st.error(f"Ocurrió un error interno: {str(e)}")
 
+# --- CONSTRUCCIÓN DE LA PESTAÑA MÁQUINAS ---
 with tab_maquinas:
     with st.expander("📖 ¿Cómo funciona el Modo Resumido?", expanded=False):
         st.write("Ideal para reportes como `feb.txt` que contienen un resumen mensual directo de la máquina, sin desglosar rodamientos específicos.")
     
+    # Usamos un contenedor con borde para agrupar visualmente la carga
     with st.container(border=True):
         st.markdown("#### 📤 Carga de Datos")
         col_file, col_btn = st.columns([3, 1])
@@ -422,6 +382,7 @@ with tab_maquinas:
             st.divider()
             procesar_interfaz(file_maq, 'maquina')
 
+# --- CONSTRUCCIÓN DE LA PESTAÑA EQUIPOS ---
 with tab_equipos:
     with st.expander("📖 ¿Cómo funciona el Modo Detallado?", expanded=False):
         st.write("Ideal para reportes como `bombas.txt` que contienen múltiples mediciones y puntos (Ej. 1HM, 2V). El sistema filtrará inteligentemente para quedarse con la peor lectura de cada apoyo en el último mes.")
