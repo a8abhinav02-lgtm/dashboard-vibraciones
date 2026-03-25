@@ -82,7 +82,7 @@ def obtener_lista_negra_df(df):
     return df_alertas[['Area', 'Equipment', 'Unit', 'Criticality', 'Var % vs Avg', 'Latest vs Avg']]
 
 # ==========================================
-# 2. NUEVOS PARSERS Y VALIDACIÓN INTELIGENTE
+# 2. PARSERS Y VALIDACIÓN BLINDADA
 # ==========================================
 def detectar_tipo_archivo(lines):
     texto_muestra = " ".join(lines[:150]) 
@@ -95,6 +95,8 @@ def parse_maquinas(lines):
     current_area, current_equipment, current_unit = None, None, None
     meses_validos = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
     ruido = ['Monthly', '****', 'Database:', 'Report Date:', 'Period Reported:']
+    
+    pending_date = None # Memoria para valores que saltan a la siguiente línea
 
     for row_str in lines:
         row_str = row_str.strip()
@@ -105,34 +107,57 @@ def parse_maquinas(lines):
             continue
 
         parts = row_str.split()
-        is_data_line = False
         
-        # Validación robusta: Si empieza con un mes y le sigue un año de 4 dígitos, es línea de datos
+        # Recuperación de valor en la siguiente línea (Line Wrapping)
+        if pending_date:
+            try:
+                val = float(parts[0])
+                data.append({'Area': current_area, 'Equipment': current_equipment, 'Unit': current_unit, 'Month': pending_date, 'Value': val})
+                pending_date = None
+                continue
+            except ValueError:
+                if parts[0] == '-------':
+                    data.append({'Area': current_area, 'Equipment': current_equipment, 'Unit': current_unit, 'Month': pending_date, 'Value': None})
+                    pending_date = None
+                    continue
+                else:
+                    pending_date = None # Falsa alarma
+
+        is_data_line = False
         if len(parts) >= 2:
             potential_month = parts[0].replace(',', '').strip().capitalize()
             if potential_month in meses_validos and parts[1].isdigit() and len(parts[1]) == 4:
                 is_data_line = True
 
         if is_data_line:
-            # Detecta la unidad pero NO hace "continue", permitiendo guardar el mes actual
             if 'mm/Sec' in row_str: current_unit = 'mm/Sec RMS'
             elif 'G-s' in row_str: current_unit = 'G-s RMS'
             
             if current_unit:
                 month_str = parts[0].replace(',', '').strip().capitalize()
                 year_str = parts[1].strip()
-                val_str = parts[2] if len(parts) > 2 else '-------'
-                val = float(val_str) if val_str != '-------' else None
-                data.append({
-                    'Area': current_area, 
-                    'Equipment': current_equipment, 
-                    'Unit': current_unit, 
-                    'Month': f"{month_str} {year_str}", 
-                    'Value': val
-                })
+                month_formatted = f"{month_str} {year_str}"
+                
+                if len(parts) > 2:
+                    val_str = parts[2]
+                    try:
+                        val = float(val_str)
+                    except ValueError:
+                        val = None
+                    data.append({'Area': current_area, 'Equipment': current_equipment, 'Unit': current_unit, 'Month': month_formatted, 'Value': val})
+                else:
+                    # El valor probablemente esté en la línea de abajo
+                    pending_date = month_formatted
             continue
         
-        # Si no es línea de datos, ni ruido, ni área, asumimos que es el nombre del equipo automáticamente
+        # Evitar bautizar máquinas con números flotantes sueltos
+        try:
+            float(parts[0])
+            continue 
+        except ValueError:
+            pass
+        
+        if parts[0] == '-------': continue
         current_equipment = row_str
 
     return pd.DataFrame(data)
@@ -141,6 +166,8 @@ def parse_equipos(lines):
     data, current_area, current_equipment, current_tag, current_unit = [], None, None, None, None
     meses_nombres = {1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun', 7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'}
     ruido = ['Measurement Point History', 'Database:', 'Report Date:', 'Period Reported:', 'Baseline Value', 'Early Warning Limit', 'Alert Limit Value', 'Fault Limit Value', 'Calc. Mean Value', 'Standard Deviation', '*************************']
+    
+    pending_date_eq = None # Memoria contra Line Wrapping
 
     for row_str in lines:
         row_str = row_str.strip()
@@ -157,14 +184,35 @@ def parse_equipos(lines):
         if 'G-s' in row_str: current_unit = 'G-s RMS'; continue
 
         parts = row_str.split()
-        if len(parts) >= 3 and '/' in parts[0] and ':' in parts[1]:
+        
+        # Recuperación de valor en la siguiente línea
+        if pending_date_eq:
+            try:
+                val = float(parts[0])
+                data.append({'Area': current_area, 'Equipment': current_equipment, 'Tag': current_tag, 'Unit': current_unit, 'Month': pending_date_eq, 'Value': val})
+                pending_date_eq = None
+                continue
+            except ValueError:
+                pending_date_eq = None
+
+        if len(parts) >= 2 and '/' in parts[0] and ':' in parts[1]:
             try:
                 dt = pd.to_datetime(parts[0], format='%d/%m/%y')
                 month_year = f"{meses_nombres[dt.month]} {dt.year}"
-                val = float(parts[2])
-                data.append({'Area': current_area, 'Equipment': current_equipment, 'Tag': current_tag, 'Unit': current_unit, 'Month': month_year, 'Value': val})
+                if len(parts) >= 3:
+                    val = float(parts[2])
+                    data.append({'Area': current_area, 'Equipment': current_equipment, 'Tag': current_tag, 'Unit': current_unit, 'Month': month_year, 'Value': val})
+                else:
+                    pending_date_eq = month_year
             except ValueError: pass
             continue
+
+        try:
+            float(parts[0])
+            continue
+        except ValueError:
+            pass
+
         current_tag = row_str
 
     df_equipos = pd.DataFrame(data)
