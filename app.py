@@ -23,7 +23,6 @@ def calcular_criticidad(var_porcentual):
 def procesar_unidad(df_in, month_order, latest_month, group_keys, unidad):
     if df_in.empty: return None
     
-    # Pre-agrupar para tomar el MÁXIMO si hay múltiples lecturas
     if 'Month' in df_in.columns and 'Value' in df_in.columns:
         df_in = df_in.groupby(group_keys + ['Month'])['Value'].max().reset_index()
     
@@ -71,7 +70,6 @@ def procesar_unidad(df_in, month_order, latest_month, group_keys, unidad):
     return pivot_table_final
 
 def obtener_lista_negra_df(df):
-    """Extrae y ordena la lista negra para mostrarla en la web."""
     if df is None or df.empty: return pd.DataFrame()
     df_alertas = df[df['Criticality'].isin(['ALTO', 'MEDIA'])].copy()
     if df_alertas.empty: return pd.DataFrame()
@@ -147,7 +145,6 @@ def parse_equipos(lines):
     df_equipos = pd.DataFrame(data)
     if df_equipos.empty: return df_equipos
 
-    # --- Lógica de Competición por Grupos ---
     df_equipos = df_equipos.groupby(['Area', 'Equipment', 'Tag', 'Unit', 'Month'])['Value'].max().reset_index()
     df_equipos['Date_obj'] = pd.to_datetime(df_equipos['Month'], format='%b %Y')
     
@@ -242,45 +239,58 @@ def generar_excel(tabla_vel, tabla_acc, month_order):
     return output
 
 # ==========================================
-# 4. INTERFAZ GRÁFICA (UI) MEJORADA
+# 4. INTERFAZ GRÁFICA (UI) REDISEÑADA
 # ==========================================
 
-# --- INYECCIÓN DE CSS PARA ESTILOS AVANZADOS ---
+# --- INYECCIÓN DE CSS PARA BOTONES Y CABECERA ---
 st.markdown("""
     <style>
-    .block-container { padding-top: 2rem; padding-bottom: 2rem; }
-    .stButton>button {
-        width: 100%;
-        border-radius: 8px;
+    /* Estilo del título principal */
+    .main-title {
+        font-size: 2.8rem;
+        font-weight: 800;
+        color: #1F497D;
+        margin-bottom: 0px;
+    }
+    .sub-title {
+        font-size: 1.2rem;
+        color: #555555;
+        margin-top: -10px;
+        margin-bottom: 30px;
+    }
+    /* Estilos para los botones principales */
+    div.stButton > button {
+        background: linear-gradient(90deg, #1F497D 0%, #3B82F6 100%);
+        color: white;
+        border: none;
+        border-radius: 6px;
         font-weight: bold;
-        border: 2px solid #1F497D;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         transition: all 0.3s ease;
     }
-    .stButton>button:hover {
-        background-color: #1F497D;
+    div.stButton > button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 12px rgba(0,0,0,0.2);
         color: white;
-        transform: scale(1.02);
     }
-    div[data-testid="stInfo"] {
-        background-color: #f0f8ff;
-        border-left: 5px solid #1F497D;
-        border-radius: 4px;
+    /* Mejora de las métricas (KPIs) */
+    div[data-testid="metric-container"] {
+        background-color: white;
+        border: 1px solid #e0e0e0;
+        padding: 15px;
+        border-radius: 8px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- CABECERA ---
-col1, col2 = st.columns([1, 8])
-with col1:
-    st.image("https://cdn-icons-png.flaticon.com/512/2043/2043236.png", width=70) # Ícono de engranaje
-with col2:
-    st.title("Procesador ETL")
-    st.subheader("Mantenimiento Predictivo & Análisis de Vibraciones")
+# --- CABECERA VISUAL ---
+st.markdown('<p class="main-title">⚙️ Plataforma ETL - Mantenimiento Predictivo</p>', unsafe_allow_html=True)
+st.markdown('<p class="sub-title">Motor de Análisis y Generación Automática de Dashboards</p>', unsafe_allow_html=True)
+st.divider()
 
-st.markdown("---")
-
-# --- PESTAÑAS (Tabs) ---
-tab_maquinas, tab_equipos = st.tabs(["📁 MODO RESUMIDO (Máquinas)", "⚙️ MODO DETALLADO (Puntos de Equipo)"])
+# --- PESTAÑAS ---
+tab_maquinas, tab_equipos = st.tabs(["📁 MODO RESUMIDO (Máquinas)", "⚙️ MODO DETALLADO (Equipos por Puntos)"])
 
 # --- LÓGICA DE PROCESAMIENTO UI ---
 def procesar_interfaz(uploaded_file, modo_esperado):
@@ -289,12 +299,12 @@ def procesar_interfaz(uploaded_file, modo_esperado):
     tipo_detectado = detectar_tipo_archivo(lines)
     if tipo_detectado != modo_esperado and tipo_detectado != 'unknown':
         if modo_esperado == 'maquina':
-            st.error("❌ **¡Archivo Incorrecto!** Detectamos que subiste un reporte detallado (por puntos). Por favor, ve a la pestaña **'⚙️ MODO DETALLADO'** para procesarlo.")
+            st.error("❌ **¡Archivo Incorrecto!** Detectaste un reporte detallado. Ve a la pestaña **'⚙️ MODO DETALLADO'**.")
         else:
-            st.error("❌ **¡Archivo Incorrecto!** Detectamos que subiste un reporte resumido. Por favor, ve a la pestaña **'📁 MODO RESUMIDO'** para procesarlo.")
+            st.error("❌ **¡Archivo Incorrecto!** Detectaste un reporte resumido. Ve a la pestaña **'📁 MODO RESUMIDO'**.")
         return
 
-    with st.spinner('Analizando datos, consolidando grupos y dibujando gráficos...'):
+    with st.spinner('Analizando millones de puntos de datos y calculando variaciones...'):
         try:
             if modo_esperado == 'maquina': df_data = parse_maquinas(lines)
             else: df_data = parse_equipos(lines)
@@ -314,8 +324,19 @@ def procesar_interfaz(uploaded_file, modo_esperado):
             lista_negra_acc = obtener_lista_negra_df(tabla_acc)
             lista_negra_total = pd.concat([lista_negra_vel, lista_negra_acc]).reset_index(drop=True)
 
+            # --- PANEL DE PREVISUALIZACIÓN (DASHBOARD WEB) ---
+            st.markdown("### 📊 Panel de Resultados")
             if not lista_negra_total.empty:
-                st.subheader("🚨 Previsualización Rápida: Equipos en Alerta")
+                altos = len(lista_negra_total[lista_negra_total['Criticality'] == 'ALTO'])
+                medias = len(lista_negra_total[lista_negra_total['Criticality'] == 'MEDIA'])
+                
+                # Tarjetas de Métricas nativas de Streamlit
+                col1, col2, col3 = st.columns(3)
+                col1.metric("🔴 Equipos en ALTO", altos)
+                col2.metric("🟡 Equipos en MEDIA", medias)
+                col3.metric("⚠️ Total de Alertas", altos + medias)
+                
+                st.write("")
                 def color_criticidad(val):
                     color = '#FFC7CE' if val == 'ALTO' else '#FFEB9C' if val == 'MEDIA' else ''
                     font = '#9C0006' if val == 'ALTO' else '#9C6500' if val == 'MEDIA' else ''
@@ -323,42 +344,58 @@ def procesar_interfaz(uploaded_file, modo_esperado):
 
                 st.dataframe(lista_negra_total.style.map(color_criticidad, subset=['Criticality']), use_container_width=True, hide_index=True)
             else:
-                st.success("✅ ¡Excelentes noticias! No hay ningún equipo en estado ALTO o MEDIA.")
+                st.success("✅ ¡Excelente! La planta está estable. No hay equipos en estado ALTO o MEDIA.")
 
+            st.write("")
             excel_file = generar_excel(tabla_vel, tabla_acc, month_order)
-            st.divider()
-            st.download_button(
-                label="📥 Descargar Dashboard Completo en Excel",
-                data=excel_file.getvalue(),
-                file_name=f"Reporte_Vibraciones_{modo_esperado.capitalize()}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                type="primary"
-            )
+            
+            # Botón de descarga dentro de un contenedor para centrar la atención
+            with st.container(border=True):
+                st.markdown("#### 📥 Exportar Resultados")
+                st.download_button(
+                    label="Descargar Dashboard en Excel (.xlsx)",
+                    data=excel_file.getvalue(),
+                    file_name=f"Reporte_Vibraciones_{modo_esperado.capitalize()}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
 
         except Exception as e:
-            st.error(f"Ocurrió un error inesperado durante el procesamiento: {str(e)}")
+            st.error(f"Ocurrió un error interno: {str(e)}")
 
-
-# --- CONTENIDO DE LA PESTAÑA 1 (MÁQUINAS) ---
+# --- CONSTRUCCIÓN DE LA PESTAÑA MÁQUINAS ---
 with tab_maquinas:
-    st.info("**💡 Guía de Uso:** Utiliza esta sección para reportes mensuales consolidados (Ej. *feb.txt*). El sistema evaluará la tendencia general de la máquina.")
-    col_upload_m, col_action_m = st.columns([3, 1])
-    with col_upload_m:
-        file_maq = st.file_uploader("Arrastra tu reporte consolidado aquí", type=['txt'], key="maq")
-    with col_action_m:
-        st.write("") 
-        st.write("")
-        if file_maq and st.button("🚀 Ejecutar Análisis", key="btn_maq", use_container_width=True):
+    with st.expander("📖 ¿Cómo funciona el Modo Resumido?", expanded=False):
+        st.write("Ideal para reportes como `feb.txt` que contienen un resumen mensual directo de la máquina, sin desglosar rodamientos específicos.")
+    
+    # Usamos un contenedor con borde para agrupar visualmente la carga
+    with st.container(border=True):
+        st.markdown("#### 📤 Carga de Datos")
+        col_file, col_btn = st.columns([3, 1])
+        with col_file:
+            file_maq = st.file_uploader("Selecciona el archivo de texto", type=['txt'], key="maq", label_visibility="collapsed")
+        with col_btn:
+            if file_maq:
+                st.button("⚙️ Analizar", key="btn_maq", use_container_width=True, on_click=lambda: None)
+        
+        if file_maq:
+            st.divider()
             procesar_interfaz(file_maq, 'maquina')
 
-# --- CONTENIDO DE LA PESTAÑA 2 (EQUIPOS) ---
+# --- CONSTRUCCIÓN DE LA PESTAÑA EQUIPOS ---
 with tab_equipos:
-    st.info("**💡 Guía de Uso:** Sube reportes detallados con historial y fechas (Ej. *bombas.txt*). El algoritmo aislará el sensor más crítico de cada apoyo para el análisis.")
-    col_upload_e, col_action_e = st.columns([3, 1])
-    with col_upload_e:
-        file_eq = st.file_uploader("Arrastra tu reporte de puntos aquí", type=['txt'], key="eq")
-    with col_action_e:
-        st.write("") 
-        st.write("")
-        if file_eq and st.button("🚀 Ejecutar Análisis", key="btn_eq", use_container_width=True):
+    with st.expander("📖 ¿Cómo funciona el Modo Detallado?", expanded=False):
+        st.write("Ideal para reportes como `bombas.txt` que contienen múltiples mediciones y puntos (Ej. 1HM, 2V). El sistema filtrará inteligentemente para quedarse con la peor lectura de cada apoyo en el último mes.")
+    
+    with st.container(border=True):
+        st.markdown("#### 📤 Carga de Datos")
+        col_file_eq, col_btn_eq = st.columns([3, 1])
+        with col_file_eq:
+            file_eq = st.file_uploader("Selecciona el archivo de texto", type=['txt'], key="eq", label_visibility="collapsed")
+        with col_btn_eq:
+            if file_eq:
+                st.button("⚙️ Analizar", key="btn_eq", use_container_width=True, on_click=lambda: None)
+        
+        if file_eq:
+            st.divider()
             procesar_interfaz(file_eq, 'equipo')
