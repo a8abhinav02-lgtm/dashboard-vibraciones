@@ -83,7 +83,7 @@ def obtener_lista_negra_df(df):
 
 
 # ==========================================
-# 2. PARSERS RESCATADOS DEL CÓDIGO FUNCIONAL
+# 2. PARSERS DE EXTRACCIÓN
 # ==========================================
 def detectar_tipo_archivo(lines):
     texto_muestra = " ".join(lines[:150]) 
@@ -92,9 +92,12 @@ def detectar_tipo_archivo(lines):
     return 'unknown'
 
 def parse_maquinas(lines):
+    """
+    Parser estricto basado en 'codigo_funcional.ipynb'
+    """
     data, current_area, current_equipment, current_unit = [], None, None, None
     meses_validos = ['Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov']
-    
+
     for row_str in lines:
         row_str = row_str.strip()
         if not row_str: continue
@@ -103,41 +106,38 @@ def parse_maquinas(lines):
             current_area = row_str.split('Area:')[1].strip()
             continue
             
-        # El Escudo de Titanio (Rescatado de tu código en Colab)
         if row_str.startswith(('PP', 'PF', 'PC', 'PR')) and not row_str.startswith('Database:') and not row_str.startswith('Report Date:'):
             current_equipment = row_str.strip()
             continue
-            
-        # Detectamos la unidad pero SIN usar 'continue' para no borrar el primer mes
-        if 'mm/Sec' in row_str: current_unit = 'mm/Sec RMS'
-        elif 'G-s' in row_str: current_unit = 'G-s RMS'
 
-        # Leemos el mes y el valor de vibración
+        if 'mm/Sec' in row_str: 
+            current_unit = 'mm/Sec RMS'
+            continue
+            
+        if 'G-s' in row_str: 
+            current_unit = 'G-s RMS'
+            continue
+
         if current_unit in ['mm/Sec RMS', 'G-s RMS'] and any(month in row_str for month in meses_validos):
             parts = row_str.split()
             if len(parts) >= 2:
                 month = parts[0].replace(',', '').strip().capitalize()
+                year = parts[1].strip()
+                val_str = parts[2] if len(parts) > 2 else '-------'
                 
-                # Validar de nuevo que la palabra sea un mes y no basura
-                if month in meses_validos:
-                    year = parts[1].strip()
-                    val_str = parts[2] if len(parts) > 2 else '-------'
+                try:
+                    val = float(val_str) if val_str != '-------' else None
+                except ValueError:
+                    val = None
                     
-                    try:
-                        val = float(val_str)
-                    except ValueError:
-                        val = None # Por si tiene guiones '-------'
-                        
-                    data.append({
-                        'Area': current_area, 
-                        'Equipment': current_equipment, 
-                        'Unit': current_unit, 
-                        'Month': f"{month} {year}", 
-                        'Value': val
-                    })
+                data.append({'Area': current_area, 'Equipment': current_equipment, 'Unit': current_unit, 'Month': f"{month} {year}", 'Value': val})
+                
     return pd.DataFrame(data)
 
 def parse_equipos(lines):
+    """
+    Parser avanzado para reducción de puntos (Modo Detallado)
+    """
     data, current_area, current_equipment, current_tag, current_unit = [], None, None, None, None
     meses_nombres = {1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun', 7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'}
     ruido = ['Measurement Point History', 'Database:', 'Report Date:', 'Period Reported:', 'Baseline Value', 'Early Warning Limit', 'Alert Limit Value', 'Fault Limit Value', 'Calc. Mean Value', 'Standard Deviation', '*************************']
@@ -170,6 +170,7 @@ def parse_equipos(lines):
     df_equipos = pd.DataFrame(data)
     if df_equipos.empty: return df_equipos
 
+    # Reducción por Grupos
     df_equipos = df_equipos.groupby(['Area', 'Equipment', 'Tag', 'Unit', 'Month'])['Value'].max().reset_index()
     df_equipos['Date_obj'] = pd.to_datetime(df_equipos['Month'], format='%b %Y')
     
@@ -266,7 +267,7 @@ def generar_excel(tabla_vel, tabla_acc, month_order):
 
 
 # ==========================================
-# 4. INTERFAZ GRÁFICA (UI) REDISEÑADA
+# 4. INTERFAZ GRÁFICA (UI)
 # ==========================================
 
 st.markdown("""
@@ -303,7 +304,7 @@ def procesar_interfaz(uploaded_file, modo_esperado):
             st.error("❌ **¡Archivo Incorrecto!** Detectaste un reporte resumido. Ve a la pestaña **'📁 MODO RESUMIDO'**.")
         return
 
-    with st.spinner('Procesando matriz de datos y calculando criticidad...'):
+    with st.spinner('Procesando datos y calculando tendencias...'):
         try:
             if modo_esperado == 'maquina': df_data = parse_maquinas(lines)
             else: df_data = parse_equipos(lines)
