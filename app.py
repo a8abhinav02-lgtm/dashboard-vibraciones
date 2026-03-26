@@ -8,7 +8,7 @@ import xlsxwriter
 st.set_page_config(page_title="Dashboard Vibraciones", page_icon="⚙️", layout="wide")
 
 # ==========================================
-# 1. FUNCIONES MATEMÁTICAS Y DE TRANSFORMACIÓN
+# 1. FUNCIONES MATEMÁTICAS (Fiel al código funcional)
 # ==========================================
 def calcular_criticidad(var_porcentual):
     if var_porcentual == '---' or pd.isnull(var_porcentual): return '---'
@@ -37,6 +37,7 @@ def procesar_unidad(df_in, month_order, latest_month, group_keys, unidad):
         
     stats = previous_data.groupby(group_keys)['Value'].agg(['mean', 'std']).reset_index()
     stats[f'Avg {unidad}'] = stats['mean'].round(3)
+    stats[f'Std {unidad}'] = stats['std'].round(3)
     
     previous_stats = previous_data.groupby(group_keys)['Value'].mean().reset_index().rename(columns={'Value': 'Previous Avg'})
     median_stats = previous_data.groupby(group_keys)['Value'].median().reset_index().rename(columns={'Value': 'Previous Median'})
@@ -58,12 +59,12 @@ def procesar_unidad(df_in, month_order, latest_month, group_keys, unidad):
     )
     stats['Criticality'] = stats['Var % vs Avg'].apply(calcular_criticidad)
     
-    cols_stats = [f'Avg {unidad}', 'Latest vs Avg', 'Var % vs Avg', 'Latest vs Median', 'Criticality']
+    cols_stats = [f'Avg {unidad}', f'Std {unidad}', 'Latest vs Avg', 'Var % vs Avg', 'Latest vs Median', 'Criticality']
     stats_final = stats[group_keys + cols_stats]
     pivot_table_final = pivot_table.merge(stats_final, on=group_keys, how='left')
     pivot_table_final = pivot_table_final[group_keys + cols_stats + month_order]
     
-    cols_to_format = month_order + [f'Avg {unidad}', 'Latest vs Avg', 'Var % vs Avg', 'Latest vs Median']
+    cols_to_format = month_order + [f'Avg {unidad}', f'Std {unidad}', 'Latest vs Avg', 'Var % vs Avg', 'Latest vs Median']
     for col in cols_to_format:
         if col in pivot_table_final.columns:
             pivot_table_final[col] = pivot_table_final[col].apply(lambda x: f"{float(x):.3f}" if isinstance(x, (int, float)) and pd.notnull(x) else x)
@@ -93,7 +94,7 @@ def detectar_tipo_archivo(lines):
 
 def parse_maquinas(lines):
     """
-    Parser estricto basado en 'codigo_funcional.ipynb'
+    Parser estrictamente copiado de codigo_funcional.ipynb
     """
     data, current_area, current_equipment, current_unit = [], None, None, None
     meses_validos = ['Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov']
