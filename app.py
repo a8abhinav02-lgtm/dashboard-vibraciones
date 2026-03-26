@@ -54,7 +54,7 @@ def procesar_unidad(df_in, month_order, latest_month, group_keys, unidad):
     
     stats['Var % vs Avg'] = stats.apply(
         lambda x: round(((x['Latest Value'] - x['Previous Avg']) / x['Previous Avg']) * 100, 2) 
-        if pd.notnull(x['Latest Value']) and x['Previous Avg'] not in ['---', 0] else '---', axis=1
+        if pd.notnull(x['Latest Value']) and x['Previous Avg'] not in ['---', 0, 0.0] else '---', axis=1
     )
     stats['Criticality'] = stats['Var % vs Avg'].apply(calcular_criticidad)
     
@@ -81,8 +81,9 @@ def obtener_lista_negra_df(df):
     df_alertas['Var % vs Avg'] = df_alertas['Var % vs Avg'].apply(lambda x: f"{x}%" if x != '---' else x)
     return df_alertas[['Area', 'Equipment', 'Unit', 'Criticality', 'Var % vs Avg', 'Latest vs Avg']]
 
+
 # ==========================================
-# 2. PARSERS Y VALIDACIÓN
+# 2. PARSERS RESCATADOS DEL CÓDIGO FUNCIONAL
 # ==========================================
 def detectar_tipo_archivo(lines):
     texto_muestra = " ".join(lines[:150]) 
@@ -93,23 +94,47 @@ def detectar_tipo_archivo(lines):
 def parse_maquinas(lines):
     data, current_area, current_equipment, current_unit = [], None, None, None
     meses_validos = ['Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov']
+    
     for row_str in lines:
         row_str = row_str.strip()
         if not row_str: continue
-        if row_str.startswith('Area:'): current_area = row_str.split('Area:')[1].strip(); continue
+        
+        if row_str.startswith('Area:'): 
+            current_area = row_str.split('Area:')[1].strip()
+            continue
+            
+        # El Escudo de Titanio (Rescatado de tu código en Colab)
         if row_str.startswith(('PP', 'PF', 'PC', 'PR')) and not row_str.startswith('Database:') and not row_str.startswith('Report Date:'):
-            current_equipment = row_str.strip(); continue
-        if 'mm/Sec' in row_str: current_unit = 'mm/Sec RMS'; continue
-        if 'G-s' in row_str: current_unit = 'G-s RMS'; continue
+            current_equipment = row_str.strip()
+            continue
+            
+        # Detectamos la unidad pero SIN usar 'continue' para no borrar el primer mes
+        if 'mm/Sec' in row_str: current_unit = 'mm/Sec RMS'
+        elif 'G-s' in row_str: current_unit = 'G-s RMS'
 
+        # Leemos el mes y el valor de vibración
         if current_unit in ['mm/Sec RMS', 'G-s RMS'] and any(month in row_str for month in meses_validos):
             parts = row_str.split()
             if len(parts) >= 2:
                 month = parts[0].replace(',', '').strip().capitalize()
-                year = parts[1].strip()
-                val_str = parts[2] if len(parts) > 2 else '-------'
-                val = float(val_str) if val_str != '-------' else None
-                data.append({'Area': current_area, 'Equipment': current_equipment, 'Unit': current_unit, 'Month': f"{month} {year}", 'Value': val})
+                
+                # Validar de nuevo que la palabra sea un mes y no basura
+                if month in meses_validos:
+                    year = parts[1].strip()
+                    val_str = parts[2] if len(parts) > 2 else '-------'
+                    
+                    try:
+                        val = float(val_str)
+                    except ValueError:
+                        val = None # Por si tiene guiones '-------'
+                        
+                    data.append({
+                        'Area': current_area, 
+                        'Equipment': current_equipment, 
+                        'Unit': current_unit, 
+                        'Month': f"{month} {year}", 
+                        'Value': val
+                    })
     return pd.DataFrame(data)
 
 def parse_equipos(lines):
@@ -163,6 +188,7 @@ def parse_equipos(lines):
     df_final = df_equipos.merge(peores_tags, on=['Area', 'Equipment', 'Unit', 'Grupo', 'Tag'], how='inner')
     df_final['Equipment'] = df_final['Equipment'] + " | " + df_final['Tag']
     return df_final.drop(columns=['Tag', 'Date_obj', 'Grupo'])
+
 
 # ==========================================
 # 3. GENERADOR DE EXCEL
@@ -238,61 +264,34 @@ def generar_excel(tabla_vel, tabla_acc, month_order):
         aplicar_formatos(tabla_acc, 'Aceleracion')
     return output
 
+
 # ==========================================
 # 4. INTERFAZ GRÁFICA (UI) REDISEÑADA
 # ==========================================
 
-# --- INYECCIÓN DE CSS PARA BOTONES Y CABECERA ---
 st.markdown("""
     <style>
-    /* Estilo del título principal */
-    .main-title {
-        font-size: 2.8rem;
-        font-weight: 800;
-        color: #1F497D;
-        margin-bottom: 0px;
-    }
-    .sub-title {
-        font-size: 1.2rem;
-        color: #555555;
-        margin-top: -10px;
-        margin-bottom: 30px;
-    }
-    /* Estilos para los botones principales */
+    .main-title { font-size: 2.8rem; font-weight: 800; color: #1F497D; margin-bottom: 0px; }
+    .sub-title { font-size: 1.2rem; color: #555555; margin-top: -10px; margin-bottom: 30px; }
     div.stButton > button {
         background: linear-gradient(90deg, #1F497D 0%, #3B82F6 100%);
-        color: white;
-        border: none;
-        border-radius: 6px;
-        font-weight: bold;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-        transition: all 0.3s ease;
+        color: white; border: none; border-radius: 6px; font-weight: bold;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: all 0.3s ease;
     }
-    div.stButton > button:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 6px 12px rgba(0,0,0,0.2);
-        color: white;
-    }
-    /* Mejora de las métricas (KPIs) */
+    div.stButton > button:hover { transform: translateY(-2px); box-shadow: 0 6px 12px rgba(0,0,0,0.2); color: white; }
     div[data-testid="metric-container"] {
-        background-color: white;
-        border: 1px solid #e0e0e0;
-        padding: 15px;
-        border-radius: 8px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        background-color: white; border: 1px solid #e0e0e0; padding: 15px;
+        border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05);
     }
     </style>
     """, unsafe_allow_html=True)
 
-# --- CABECERA VISUAL ---
 st.markdown('<p class="main-title">⚙️ Plataforma ETL - Mantenimiento Predictivo</p>', unsafe_allow_html=True)
 st.markdown('<p class="sub-title">Motor de Análisis y Generación Automática de Dashboards</p>', unsafe_allow_html=True)
 st.divider()
 
-# --- PESTAÑAS ---
 tab_maquinas, tab_equipos = st.tabs(["📁 MODO RESUMIDO (Máquinas)", "⚙️ MODO DETALLADO (Equipos por Puntos)"])
 
-# --- LÓGICA DE PROCESAMIENTO UI ---
 def procesar_interfaz(uploaded_file, modo_esperado):
     lines = uploaded_file.getvalue().decode("utf-8", errors="ignore").splitlines()
     
@@ -304,13 +303,13 @@ def procesar_interfaz(uploaded_file, modo_esperado):
             st.error("❌ **¡Archivo Incorrecto!** Detectaste un reporte resumido. Ve a la pestaña **'📁 MODO RESUMIDO'**.")
         return
 
-    with st.spinner('Analizando millones de puntos de datos y calculando variaciones...'):
+    with st.spinner('Procesando matriz de datos y calculando criticidad...'):
         try:
             if modo_esperado == 'maquina': df_data = parse_maquinas(lines)
             else: df_data = parse_equipos(lines)
 
             if df_data.empty:
-                st.warning("No se encontraron datos válidos en el archivo.")
+                st.warning("No se encontraron datos válidos en el archivo. Revisa el formato.")
                 return
 
             month_order = sorted(df_data['Month'].unique(), key=lambda x: pd.to_datetime(x, format='%b %Y'))
@@ -324,13 +323,11 @@ def procesar_interfaz(uploaded_file, modo_esperado):
             lista_negra_acc = obtener_lista_negra_df(tabla_acc)
             lista_negra_total = pd.concat([lista_negra_vel, lista_negra_acc]).reset_index(drop=True)
 
-            # --- PANEL DE PREVISUALIZACIÓN (DASHBOARD WEB) ---
             st.markdown("### 📊 Panel de Resultados")
             if not lista_negra_total.empty:
                 altos = len(lista_negra_total[lista_negra_total['Criticality'] == 'ALTO'])
                 medias = len(lista_negra_total[lista_negra_total['Criticality'] == 'MEDIA'])
                 
-                # Tarjetas de Métricas nativas de Streamlit
                 col1, col2, col3 = st.columns(3)
                 col1.metric("🔴 Equipos en ALTO", altos)
                 col2.metric("🟡 Equipos en MEDIA", medias)
@@ -349,7 +346,6 @@ def procesar_interfaz(uploaded_file, modo_esperado):
             st.write("")
             excel_file = generar_excel(tabla_vel, tabla_acc, month_order)
             
-            # Botón de descarga dentro de un contenedor para centrar la atención
             with st.container(border=True):
                 st.markdown("#### 📥 Exportar Resultados")
                 st.download_button(
@@ -363,12 +359,10 @@ def procesar_interfaz(uploaded_file, modo_esperado):
         except Exception as e:
             st.error(f"Ocurrió un error interno: {str(e)}")
 
-# --- CONSTRUCCIÓN DE LA PESTAÑA MÁQUINAS ---
 with tab_maquinas:
     with st.expander("📖 ¿Cómo funciona el Modo Resumido?", expanded=False):
         st.write("Ideal para reportes como `feb.txt` que contienen un resumen mensual directo de la máquina, sin desglosar rodamientos específicos.")
     
-    # Usamos un contenedor con borde para agrupar visualmente la carga
     with st.container(border=True):
         st.markdown("#### 📤 Carga de Datos")
         col_file, col_btn = st.columns([3, 1])
@@ -382,7 +376,6 @@ with tab_maquinas:
             st.divider()
             procesar_interfaz(file_maq, 'maquina')
 
-# --- CONSTRUCCIÓN DE LA PESTAÑA EQUIPOS ---
 with tab_equipos:
     with st.expander("📖 ¿Cómo funciona el Modo Detallado?", expanded=False):
         st.write("Ideal para reportes como `bombas.txt` que contienen múltiples mediciones y puntos (Ej. 1HM, 2V). El sistema filtrará inteligentemente para quedarse con la peor lectura de cada apoyo en el último mes.")
