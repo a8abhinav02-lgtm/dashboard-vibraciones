@@ -9,7 +9,7 @@ import traceback
 st.set_page_config(page_title="Dashboard Vibraciones", page_icon="⚙️", layout="wide")
 
 # ==========================================
-# 1. FUNCIONES MATEMÁTICAS Y DE TRANSFORMACIÓN
+# 1. FUNCIONES MATEMÁTICAS (Fiel al código funcional)
 # ==========================================
 def calcular_criticidad(var_porcentual):
     if var_porcentual == '---' or pd.isnull(var_porcentual): return '---'
@@ -88,12 +88,22 @@ def obtener_lista_negra_df(df):
 # 2. PARSERS DE EXTRACCIÓN
 # ==========================================
 def detectar_tipo_archivo(lines):
-    texto_muestra = " ".join(lines[:150]) 
-    if re.search(r'\d{2}/\d{2}/\d{2}\s+\d{2}:\d{2}', texto_muestra): return 'equipo'
-    if re.search(r'[A-Z][a-z]{2},\s\d{4}', texto_muestra): return 'maquina'
+    # ¡CORRECCIÓN! Ignoramos las líneas de encabezado que causaban falsos positivos
+    for line in lines[:200]:
+        if 'Report Date:' in line or 'Period Reported:' in line:
+            continue
+        # Si detecta el mes escrito en letras (Ej: Sep, 2025), es Máquina
+        if re.search(r'(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec),\s\d{4}', line):
+            return 'maquina'
+        # Si detecta formato exacto de fecha y hora, es Equipo
+        if re.search(r'\d{2}/\d{2}/\d{2}\s+\d{2}:\d{2}', line):
+            return 'equipo'
     return 'unknown'
 
 def parse_maquinas(lines):
+    """
+    Parser estrictamente copiado de codigo_funcional.ipynb
+    """
     data, current_area, current_equipment, current_unit = [], None, None, None
     meses_validos = ['Dec', 'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov']
 
@@ -134,6 +144,9 @@ def parse_maquinas(lines):
     return pd.DataFrame(data)
 
 def parse_equipos(lines):
+    """
+    Parser avanzado para reducción de puntos (Modo Detallado)
+    """
     data, current_area, current_equipment, current_tag, current_unit = [], None, None, None, None
     meses_nombres = {1: 'Jan', 2: 'Feb', 3: 'Mar', 4: 'Apr', 5: 'May', 6: 'Jun', 7: 'Jul', 8: 'Aug', 9: 'Sep', 10: 'Oct', 11: 'Nov', 12: 'Dec'}
     ruido = ['Measurement Point History', 'Database:', 'Report Date:', 'Period Reported:', 'Baseline Value', 'Early Warning Limit', 'Alert Limit Value', 'Fault Limit Value', 'Calc. Mean Value', 'Standard Deviation', '*************************']
@@ -166,6 +179,7 @@ def parse_equipos(lines):
     df_equipos = pd.DataFrame(data)
     if df_equipos.empty: return df_equipos
 
+    # Reducción por Grupos
     df_equipos = df_equipos.groupby(['Area', 'Equipment', 'Tag', 'Unit', 'Month'])['Value'].max().reset_index()
     df_equipos['Date_obj'] = pd.to_datetime(df_equipos['Month'], format='%b %Y')
     
@@ -292,7 +306,7 @@ def procesar_interfaz(uploaded_file, modo_esperado):
     lines = uploaded_file.getvalue().decode("utf-8", errors="ignore").splitlines()
     
     # --- CONSOLA DE DEPURACIÓN EN PANTALLA ---
-    with st.expander("🛠️ CONSOLA DE DEPURACIÓN (Haz clic para ver Logs)", expanded=True):
+    with st.expander("🛠️ CONSOLA DE DEPURACIÓN (Haz clic para ver Logs)", expanded=False):
         st.write(f"**1. Archivo Leído:** {uploaded_file.name} | **Líneas:** {len(lines)}")
         tipo_detectado = detectar_tipo_archivo(lines)
         st.write(f"**2. Tipo Detectado Automáticamente:** {tipo_detectado} | **Modo Solicitado:** {modo_esperado}")
@@ -310,12 +324,10 @@ def procesar_interfaz(uploaded_file, modo_esperado):
             else: df_data = parse_equipos(lines)
 
             # --- LOG: MOSTRAR DATA EXTRAÍDA ---
-            with st.expander("🛠️ CONSOLA DE DEPURACIÓN (Haz clic para ver Logs)", expanded=True):
+            with st.expander("🛠️ CONSOLA DE DEPURACIÓN - Datos Extraídos", expanded=False):
                 st.write(f"**3. Filas extraídas por el Parser:** {len(df_data)}")
                 if not df_data.empty:
-                    st.dataframe(df_data.head(10)) # Muestra las primeras 10 filas para confirmar
-                else:
-                    st.error("CRÍTICO: El parser no encontró ninguna fila válida. Revisa los filtros.")
+                    st.dataframe(df_data.head(10)) 
 
             if df_data.empty:
                 st.warning("No se encontraron datos válidos en el archivo. Revisa el formato.")
@@ -331,11 +343,6 @@ def procesar_interfaz(uploaded_file, modo_esperado):
             lista_negra_vel = obtener_lista_negra_df(tabla_vel)
             lista_negra_acc = obtener_lista_negra_df(tabla_acc)
             lista_negra_total = pd.concat([lista_negra_vel, lista_negra_acc]).reset_index(drop=True)
-
-            # --- LOG: VERIFICACIÓN FINAL MATEMÁTICA ---
-            with st.expander("🛠️ CONSOLA DE DEPURACIÓN (Haz clic para ver Logs)", expanded=True):
-                st.write(f"**4. Meses detectados para Pivot:** {month_order}")
-                st.write(f"**5. Alertas Generadas en Lista Negra:** {len(lista_negra_total)}")
 
             st.markdown("### 📊 Panel de Resultados")
             if not lista_negra_total.empty:
@@ -373,7 +380,6 @@ def procesar_interfaz(uploaded_file, modo_esperado):
         except Exception as e:
             st.error("🚨 LA APLICACIÓN HA FALLADO 🚨")
             st.error(f"Mensaje de error: {str(e)}")
-            st.warning("Copia el siguiente recuadro rojo y compártelo para identificar la falla exacta:")
             st.code(traceback.format_exc(), language='python')
 
 with tab_maquinas:
